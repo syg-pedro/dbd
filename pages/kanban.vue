@@ -1,11 +1,32 @@
 <script setup lang="ts">
 import type { Demand, DemandStatus } from '~/types/domain'
 import { DEMAND_STATUSES } from '~/types/domain'
-import { formatDate, priorityLabel } from '~/utils/format'
+import { formatCurrencyFromCents, formatDate, priorityLabel, todayIsoDate } from '~/utils/format'
 
 const { demands, loading, error, fetchDemands, updateDemandStatus, duplicateDemand } = useDemands()
 const { openDemandModal } = useDemandModal()
 const draggingId = ref<string | null>(null)
+
+const currentMonthLabel = computed(() =>
+  new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date())
+)
+
+const monthDemandItems = computed(() => {
+  const now = new Date()
+  return demands.value.filter((demand) => {
+    const created = new Date(demand.created_at)
+    return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear()
+  })
+})
+
+const kpis = computed(() => {
+  const pending = demands.value.filter((demand) => demand.status !== 'done').length
+  const done = demands.value.filter((demand) => demand.status === 'done').length
+  const blocked = demands.value.filter((demand) => demand.status === 'blocked').length
+  const monthRevenue = monthDemandItems.value.reduce((sum, demand) => sum + (demand.value_cents || 0), 0)
+  const todayCount = demands.value.filter((demand) => demand.status === 'today' || demand.due_at === todayIsoDate()).length
+  return { pending, done, blocked, monthRevenue, todayCount }
+})
 
 const columns = computed(() =>
   DEMAND_STATUSES.map((status) => ({
@@ -33,13 +54,27 @@ async function dropOn(status: DemandStatus) {
     <section class="flex flex-wrap items-center gap-4">
       <div>
         <h1 class="text-2xl font-bold text-text">Kanban</h1>
-        <p class="mt-1 text-sm text-muted">Arraste para decidir o que entra em execucao.</p>
+        <p class="mt-1 text-sm text-muted">
+          {{ currentMonthLabel }} · {{ monthDemandItems.length }} demandas neste mes
+        </p>
       </div>
       <button class="btn btn-primary ml-auto" type="button" @click="openDemandModal()">+ Nova Demanda</button>
     </section>
 
     <p v-if="error" class="panel border-danger/30 bg-danger/10 p-4 text-sm text-danger">{{ error }}</p>
     <p v-if="loading" class="panel p-4 text-sm text-muted">Carregando kanban...</p>
+
+    <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <StatCard title="Pendentes" :value="kpis.pending" subtitle="Tudo que ainda pede acao" tone="warn" />
+      <StatCard title="Prontos" :value="kpis.done" subtitle="Concluidos no historico" tone="ok" />
+      <StatCard title="Travados" :value="kpis.blocked" subtitle="Onde falta informacao" tone="danger" />
+      <StatCard
+        title="Controle Geral"
+        :value="formatCurrencyFromCents(kpis.monthRevenue)"
+        :subtitle="`${demands.length} demandas totais · ${kpis.todayCount} para hoje`"
+        tone="action"
+      />
+    </section>
 
     <section class="grid gap-4 xl:grid-cols-5">
       <div

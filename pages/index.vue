@@ -2,6 +2,7 @@
 import type { Demand, DemandStatus, Priority } from '~/types/domain'
 import { DEMAND_STATUSES, PRIORITIES } from '~/types/domain'
 import { formatCurrencyFromCents, normalizeText, todayIsoDate } from '~/utils/format'
+import { FIELD_LIMITS } from '~/utils/inputMasks'
 
 const { demands, loading, error, fetchDemands, updateDemandStatus, duplicateDemand } = useDemands()
 const { openDemandModal } = useDemandModal()
@@ -26,6 +27,22 @@ const monthDemandItems = computed(() => {
 
 const clients = computed(() => [...new Set(demands.value.map((demand) => demand.client))].sort())
 const types = computed(() => [...new Set(demands.value.map((demand) => demand.type_name))].sort())
+const statusOptions = computed(() => [
+  { value: 'all', label: 'Todos os Status' },
+  ...DEMAND_STATUSES.map((status) => ({ value: status.value, label: status.label }))
+])
+const typeOptions = computed(() => [
+  { value: 'all', label: 'Todos os Tipos' },
+  ...types.value.map((type) => ({ value: type, label: type }))
+])
+const clientOptions = computed(() => [
+  { value: 'all', label: 'Todos os Clientes' },
+  ...clients.value.map((client) => ({ value: client, label: client }))
+])
+const priorityOptions = computed(() => [
+  { value: 'all', label: 'Todas' },
+  ...PRIORITIES.map((priority) => ({ value: priority.value, label: priority.label }))
+])
 
 const filteredDemands = computed(() => {
   const query = normalizeText(search.value)
@@ -88,28 +105,17 @@ async function markDone(demand: Demand) {
       </div>
       <div class="grid gap-3 md:grid-cols-5">
         <input
-          v-model="search"
+          v-model.trim="search"
           data-global-search
           class="field"
+          :maxlength="FIELD_LIMITS.search"
           placeholder="Buscar..."
           autocomplete="off"
         />
-        <select v-model="statusFilter" class="field">
-          <option value="all">Todos os Status</option>
-          <option v-for="status in DEMAND_STATUSES" :key="status.value" :value="status.value">{{ status.label }}</option>
-        </select>
-        <select v-model="typeFilter" class="field">
-          <option value="all">Todos os Tipos</option>
-          <option v-for="type in types" :key="type" :value="type">{{ type }}</option>
-        </select>
-        <select v-model="clientFilter" class="field">
-          <option value="all">Todos os Clientes</option>
-          <option v-for="client in clients" :key="client" :value="client">{{ client }}</option>
-        </select>
-        <select v-model="priorityFilter" class="field">
-          <option value="all">Todas</option>
-          <option v-for="priority in PRIORITIES" :key="priority.value" :value="priority.value">{{ priority.label }}</option>
-        </select>
+        <AppDropdown v-model="statusFilter" :options="statusOptions" />
+        <AppDropdown v-model="typeFilter" :options="typeOptions" />
+        <AppDropdown v-model="clientFilter" :options="clientOptions" />
+        <AppDropdown v-model="priorityFilter" :options="priorityOptions" />
       </div>
     </section>
 

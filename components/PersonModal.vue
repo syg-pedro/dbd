@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Person, PersonForm } from '~/types/domain'
 import { PERSON_ROLES } from '~/types/domain'
+import { FIELD_LIMITS, limitText, maskBrazilianPhone } from '~/utils/inputMasks'
 
 const props = defineProps<{
   modelValue: boolean
@@ -16,6 +17,14 @@ const { savePerson } = usePeople()
 const saving = ref(false)
 const error = ref<string | null>(null)
 const form = reactive<PersonForm>(emptyForm())
+const roleOptions = computed(() => PERSON_ROLES.map((role) => ({ value: role.value, label: role.label })))
+
+const phoneInput = computed({
+  get: () => form.phone,
+  set: (value: string) => {
+    form.phone = maskBrazilianPhone(value)
+  }
+})
 
 watch(
   () => props.modelValue,
@@ -64,6 +73,10 @@ function close() {
 }
 
 async function submit() {
+  form.name = limitText(form.name.trim(), FIELD_LIMITS.personName)
+  form.email = limitText(form.email.trim().toLowerCase(), FIELD_LIMITS.email)
+  form.phone = maskBrazilianPhone(form.phone)
+
   if (!form.name.trim()) {
     error.value = 'Nome e obrigatorio.'
     return
@@ -100,24 +113,36 @@ async function submit() {
         <div class="space-y-4">
           <label>
             <span class="label">Nome *</span>
-            <input v-model="form.name" class="field" autocomplete="off" />
+            <input v-model.trim="form.name" class="field" autocomplete="off" :maxlength="FIELD_LIMITS.personName" />
           </label>
 
           <label>
             <span class="label">Funcao *</span>
-            <select v-model="form.role" class="field">
-              <option v-for="role in PERSON_ROLES" :key="role.value" :value="role.value">{{ role.label }}</option>
-            </select>
+            <AppDropdown v-model="form.role" :options="roleOptions" />
           </label>
 
           <label>
             <span class="label">E-mail</span>
-            <input v-model="form.email" class="field" type="email" autocomplete="off" />
+            <input
+              v-model.trim="form.email"
+              class="field"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              :maxlength="FIELD_LIMITS.email"
+            />
           </label>
 
           <label>
             <span class="label">Telefone / WhatsApp</span>
-            <input v-model="form.phone" class="field" autocomplete="off" />
+            <input
+              v-model="phoneInput"
+              class="field"
+              autocomplete="off"
+              inputmode="tel"
+              :maxlength="FIELD_LIMITS.phone"
+              placeholder="(11) 99999-9999"
+            />
           </label>
 
           <label class="flex items-center gap-3 text-sm text-muted">

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'default' })
 
+import { FIELD_LIMITS, limitText } from '~/utils/inputMasks'
+
 const supabase = useSupabaseClient()
 const email = ref('')
 const password = ref('')
@@ -21,6 +23,9 @@ function authErrorMessage(err: unknown) {
 }
 
 async function submit() {
+  email.value = limitText(email.value.trim().toLowerCase(), FIELD_LIMITS.email)
+  password.value = limitText(password.value, FIELD_LIMITS.password)
+
   loading.value = true
   error.value = null
   message.value = null
@@ -71,7 +76,15 @@ async function submit() {
       <div class="space-y-4">
         <label>
           <span class="label">E-mail</span>
-          <input v-model="email" class="field" required type="email" autocomplete="email" />
+          <input
+            v-model.trim="email"
+            class="field"
+            required
+            type="email"
+            inputmode="email"
+            autocomplete="email"
+            :maxlength="FIELD_LIMITS.email"
+          />
         </label>
         <label>
           <span class="label">Senha</span>
@@ -80,6 +93,7 @@ async function submit() {
             class="field"
             required
             minlength="6"
+            :maxlength="FIELD_LIMITS.password"
             type="password"
             autocomplete="current-password"
           />

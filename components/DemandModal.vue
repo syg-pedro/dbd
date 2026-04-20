@@ -3,6 +3,15 @@ import type { Demand, DemandForm } from '~/types/domain'
 import { DEMAND_STATUSES, PRIORITIES } from '~/types/domain'
 import { applyDemandAutomation, findSimilarDemands } from '~/utils/automation'
 import { formatCurrencyFromCents, todayIsoDate } from '~/utils/format'
+import {
+  FIELD_LIMITS,
+  clampInteger,
+  formatCurrencyInput,
+  isValidHttpUrl,
+  limitText,
+  normalizeUrl,
+  parseCurrencyToCents
+} from '~/utils/inputMasks'
 
 const props = defineProps<{
   modelValue: boolean
@@ -24,9 +33,39 @@ const saving = ref(false)
 const showAdvanced = ref(false)
 const linkDraft = ref('')
 const files = ref<File[]>([])
+const minDate = '2020-01-01'
+const maxDate = '2100-12-31'
+
+const valueInput = computed({
+  get: () => formatCurrencyInput(form.value_cents),
+  set: (value: string) => {
+    form.value_cents = parseCurrencyToCents(value)
+  }
+})
+
+const spentMinutesInput = computed({
+  get: () => (form.spent_minutes ? String(form.spent_minutes) : ''),
+  set: (value: string) => {
+    form.spent_minutes = clampInteger(value)
+  }
+})
 
 const requesters = computed(() => people.value.filter((person) => person.role === 'requester' && person.is_active))
 const designers = computed(() => people.value.filter((person) => person.role === 'designer' && person.is_active))
+const statusOptions = computed(() => DEMAND_STATUSES.map((status) => ({ value: status.value, label: status.label })))
+const typeOptions = computed(() => [
+  { value: null, label: automatedPreview.value.type_name || 'Selecionar' },
+  ...types.value.map((type) => ({ value: type.id, label: type.name }))
+])
+const priorityOptions = computed(() => PRIORITIES.map((priority) => ({ value: priority.value, label: priority.label })))
+const requesterOptions = computed(() => [
+  { value: null, label: 'Nenhum' },
+  ...requesters.value.map((person) => ({ value: person.id, label: person.name }))
+])
+const designerOptions = computed(() => [
+  { value: null, label: 'Nenhum' },
+  ...designers.value.map((person) => ({ value: person.id, label: person.name }))
+])
 const automatedPreview = computed(() => applyDemandAutomation({ ...form }, types.value))
 const similarDemands = computed(() => {
   if (!form.client || !form.original_request) return []
@@ -117,8 +156,21 @@ function close() {
 }
 
 function addLink() {
-  const url = linkDraft.value.trim()
+  error.value = null
+  if (form.links.length >= FIELD_LIMITS.linksPerDemand) {
+    error.value = `Limite de ${FIELD_LIMITS.linksPerDemand} links por demanda.`
+    return
+  }
+  const url = normalizeUrl(linkDraft.value)
   if (!url) return
+  if (!isValidHttpUrl(url)) {
+    error.value = 'Informe um link valido comecando com http:// ou https://.'
+    return
+  }
+  if (form.links.includes(url)) {
+    linkDraft.value = ''
+    return
+  }
   form.links.push(url)
   linkDraft.value = ''
 }
@@ -129,7 +181,22 @@ function removeLink(index: number) {
 
 function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
-  files.value = Array.from(input.files || [])
+  error.value = null
+  const pickedFiles = Array.from(input.files || [])
+  const allowedFiles = pickedFiles.filter((file) => {
+    const isImage = file.type.startsWith('image/')
+    const hasValidSize = file.size <= FIELD_LIMITS.fileSizeBytes
+    return isImage && hasValidSize
+  })
+
+  if (pickedFiles.length > FIELD_LIMITS.filesPerDemand) {
+    error.value = `Selecione no maximo ${FIELD_LIMITS.filesPerDemand} imagens por demanda.`
+  } else if (allowedFiles.length !== pickedFiles.length) {
+    error.value = 'Use apenas imagens de ate 10 MB.'
+  }
+
+  files.value = allowedFiles.slice(0, FIELD_LIMITS.filesPerDemand)
+  if (error.value) input.value = ''
 }
 
 function syncTypeDefaults() {
@@ -141,6 +208,17 @@ function syncTypeDefaults() {
 }
 
 async function submit() {
+  form.client = limitText(form.client.trim(), FIELD_LIMITS.client)
+  form.original_request = limitText(form.original_request.trim(), FIELD_LIMITS.demand)
+  form.title = limitText(form.title.trim(), FIELD_LIMITS.title)
+  form.content = limitText(form.content.trim(), FIELD_LIMITS.content)
+  form.additional = limitText(form.additional.trim(), FIELD_LIMITS.additional)
+  form.notes = limitText(form.notes.trim(), FIELD_LIMITS.notes)
+  form.references_text = limitText(form.references_text.trim(), FIELD_LIMITS.references)
+  form.links = form.links.map(normalizeUrl).filter(isValidHttpUrl).slice(0, FIELD_LIMITS.linksPerDemand)
+  form.value_cents = clampInteger(form.value_cents, FIELD_LIMITS.moneyCents)
+  form.spent_minutes = clampInteger(form.spent_minutes)
+
   if (!form.client.trim() || !form.original_request.trim()) {
     error.value = 'Cliente e demanda sao obrigatorios.'
     return
@@ -174,14 +252,21 @@ async function submit() {
         <div class="grid gap-4 md:grid-cols-2">
           <label>
             <span class="label">Cliente *</span>
-            <input v-model="form.client" class="field" autocomplete="off" placeholder="Ex: Academia PowerFit" />
+            <input
+              v-model.trim="form.client"
+              class="field"
+              autocomplete="off"
+              :maxlength="FIELD_LIMITS.client"
+              placeholder="Ex: Academia PowerFit"
+            />
           </label>
           <label>
             <span class="label">Demanda *</span>
             <input
-              v-model="form.original_request"
+              v-model.trim="form.original_request"
               class="field"
               autocomplete="off"
+              :maxlength="FIELD_LIMITS.demand"
               placeholder="Ex: post whey promocao para hoje"
             />
           </label>
@@ -190,37 +275,36 @@ async function submit() {
         <div class="mt-4 grid gap-4 md:grid-cols-3">
           <label>
             <span class="label">Status</span>
-            <select v-model="form.status" class="field">
-              <option v-for="status in DEMAND_STATUSES" :key="status.value" :value="status.value">
-                {{ status.label }}
-              </option>
-            </select>
+            <AppDropdown v-model="form.status" :options="statusOptions" />
           </label>
           <label>
             <span class="label">Tipo sugerido</span>
-            <select v-model="form.type_id" class="field" @change="syncTypeDefaults">
-              <option :value="null">{{ automatedPreview.type_name || 'Selecionar' }}</option>
-              <option v-for="type in types" :key="type.id" :value="type.id">{{ type.name }}</option>
-            </select>
+            <AppDropdown v-model="form.type_id" :options="typeOptions" @change="syncTypeDefaults" />
           </label>
           <label>
             <span class="label">Prioridade</span>
-            <select v-model="form.priority" class="field">
-              <option v-for="priority in PRIORITIES" :key="priority.value" :value="priority.value">
-                {{ priority.label }}
-              </option>
-            </select>
+            <AppDropdown v-model="form.priority" :options="priorityOptions" />
           </label>
         </div>
 
         <div class="mt-4 grid gap-4 md:grid-cols-3">
           <label class="md:col-span-2">
             <span class="label">Titulo curto</span>
-            <input v-model="form.title" class="field" :placeholder="automatedPreview.title" />
+            <input
+              v-model.trim="form.title"
+              class="field"
+              :maxlength="FIELD_LIMITS.title"
+              :placeholder="automatedPreview.title"
+            />
           </label>
           <label>
             <span class="label">Prazo</span>
-            <input v-model="form.due_at" class="field" type="date" :placeholder="automatedPreview.due_at" />
+            <AppDatePicker
+              v-model="form.due_at"
+              :min="minDate"
+              :max="maxDate"
+              :placeholder="automatedPreview.due_at"
+            />
           </label>
         </div>
 
@@ -242,66 +326,75 @@ async function submit() {
           <div class="grid gap-4 md:grid-cols-3">
             <label class="md:col-span-3">
               <span class="label">Conteudo</span>
-              <textarea v-model="form.content" class="field min-h-24 resize-y" />
+              <textarea v-model.trim="form.content" class="field min-h-24 resize-y" :maxlength="FIELD_LIMITS.content" />
             </label>
             <label class="md:col-span-3">
               <span class="label">Adicional</span>
-              <textarea v-model="form.additional" class="field min-h-20 resize-y" />
+              <textarea v-model.trim="form.additional" class="field min-h-20 resize-y" :maxlength="FIELD_LIMITS.additional" />
             </label>
             <label class="md:col-span-3">
               <span class="label">Observacao</span>
-              <textarea v-model="form.notes" class="field min-h-20 resize-y" />
+              <textarea v-model.trim="form.notes" class="field min-h-20 resize-y" :maxlength="FIELD_LIMITS.notes" />
             </label>
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">
             <label>
               <span class="label">Solicitante</span>
-              <select v-model="form.requester_id" class="field">
-                <option :value="null">Nenhum</option>
-                <option v-for="person in requesters" :key="person.id" :value="person.id">{{ person.name }}</option>
-              </select>
+              <AppDropdown v-model="form.requester_id" :options="requesterOptions" />
             </label>
             <label>
               <span class="label">Designer</span>
-              <select v-model="form.designer_id" class="field">
-                <option :value="null">Nenhum</option>
-                <option v-for="person in designers" :key="person.id" :value="person.id">{{ person.name }}</option>
-              </select>
+              <AppDropdown v-model="form.designer_id" :options="designerOptions" />
             </label>
           </div>
 
           <div class="grid gap-4 md:grid-cols-3">
             <label>
               <span class="label">Data de solicitacao</span>
-              <input v-model="form.requested_at" class="field" type="date" />
+              <AppDatePicker v-model="form.requested_at" :min="minDate" :max="maxDate" :clearable="false" />
             </label>
             <label>
               <span class="label">Entrega</span>
-              <input v-model="form.delivery_at" class="field" type="date" />
+              <AppDatePicker v-model="form.delivery_at" :min="minDate" :max="maxDate" />
             </label>
             <label>
               <span class="label">Postagem</span>
-              <input v-model="form.posting_at" class="field" type="date" />
+              <AppDatePicker v-model="form.posting_at" :min="minDate" :max="maxDate" />
             </label>
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">
             <label>
-              <span class="label">Valor em centavos</span>
-              <input v-model.number="form.value_cents" class="field" min="0" type="number" />
+              <span class="label">Valor</span>
+              <input
+                v-model="valueInput"
+                class="field"
+                autocomplete="off"
+                inputmode="numeric"
+                maxlength="14"
+                placeholder="R$ 0,00"
+              />
             </label>
             <label>
               <span class="label">Tempo gasto em minutos</span>
-              <input v-model.number="form.spent_minutes" class="field" min="0" type="number" />
+              <input
+                v-model="spentMinutesInput"
+                class="field"
+                autocomplete="off"
+                inputmode="numeric"
+                :maxlength="String(FIELD_LIMITS.minutes).length"
+                placeholder="0"
+              />
             </label>
           </div>
 
           <label>
             <span class="label">Referencias / Texto</span>
             <textarea
-              v-model="form.references_text"
+              v-model.trim="form.references_text"
               class="field min-h-20 resize-y"
+              :maxlength="FIELD_LIMITS.references"
               placeholder="Descreva a inspiracao ou referencias visuais..."
             />
           </label>
@@ -309,7 +402,15 @@ async function submit() {
           <div>
             <span class="label">Links</span>
             <div class="flex gap-2">
-              <input v-model="linkDraft" class="field" placeholder="https://..." @keyup.enter.prevent="addLink" />
+              <input
+                v-model.trim="linkDraft"
+                class="field"
+                type="url"
+                inputmode="url"
+                :maxlength="FIELD_LIMITS.url"
+                placeholder="https://..."
+                @keyup.enter.prevent="addLink"
+              />
               <button class="btn btn-secondary" type="button" @click="addLink">+</button>
             </div>
             <div v-if="form.links.length" class="mt-2 flex flex-wrap gap-2">
@@ -329,6 +430,7 @@ async function submit() {
           <label>
             <span class="label">Imagens</span>
             <input class="field" type="file" multiple accept="image/*" @change="handleFileChange" />
+            <span class="mt-1 block text-xs text-muted">Ate {{ FIELD_LIMITS.filesPerDemand }} imagens, 10 MB cada.</span>
           </label>
         </div>
 
