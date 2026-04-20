@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design OS - V3 Ultimate</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f1115; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+        .card { background-color: #1e2128; border: 1px solid #2d3139; transition: all 0.2s ease; }
+        .card:hover { border-color: #4b5563; }
+        .input-dark { background-color: #13151a; border: 1px solid #2d3139; color: #fff; transition: all 0.2s; }
+        .input-dark:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 1px #3b82f6; }
+        .drag-over { border: 2px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.05); }
+        .dragging { opacity: 0.5; transform: scale(0.95); }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #2d3139; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        
+        th { background-color: #16181d; position: sticky; top: 0; z-index: 10; }
+        tr:hover td { background-color: #1e2128; }
+        
+        /* Animação de urgência */
+        @keyframes pulse-red { 0%, 100% { color: #f87171; } 50% { color: #ef4444; text-shadow: 0 0 8px rgba(239,68,68,0.5); } }
+        .overdue { animation: pulse-red 2s infinite; font-weight: bold; }
+
+        /* Toast Animation */
+        @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="p-6 h-screen flex flex-col gap-5 max-w-[1600px] mx-auto w-full">
+
+    <header class="flex justify-between items-end shrink-0">
+        <div>
+            <h1 class="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                ⚡ Design OS <span class="bg-blue-600 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">v3.0</span>
+            </h1>
+            <div class="flex gap-4 mt-3">
+                <button onclick="toggleView('kanban')" id="btn-kanban" class="text-sm font-semibold text-blue-400 border-b-2 border-blue-400 pb-1 transition-colors">🧩 Kanban Visual</button>
+                <button onclick="toggleView('table')" id="btn-table" class="text-sm font-semibold text-gray-500 hover:text-gray-300 pb-1 transition-colors">📊 Base Central (Planilha)</button>
+            </div>
+        </div>
+        <div class="flex gap-3 items-center">
+            <div class="flex bg-[#16181d] rounded-lg p-1 border border-gray-800">
+                <button onclick="exportData()" class="px-3 py-1.5 text-xs font-semibold text-gray-400 hover:text-white transition-colors" title="Salvar Backup no PC">💾 Baixar Backup</button>
+                <div class="w-px bg-gray-700 mx-1"></div>
+                <label class="px-3 py-1.5 text-xs font-semibold text-gray-400 hover:text-white cursor-pointer transition-colors" title="Restaurar Backup">
+                    📂 Importar <input type="file" id="import-file" class="hidden" accept=".json" onchange="importData(event)">
+                </label>
+                <div class="w-px bg-gray-700 mx-1"></div>
+                <button onclick="clearDone()" class="px-3 py-1.5 text-xs font-semibold text-green-500 hover:bg-green-500/10 rounded transition-colors" title="Apagar todos os concluídos">🧹 Limpar Prontos</button>
+            </div>
+            
+            <select id="filter-type" class="input-dark rounded-lg px-3 py-2 text-sm h-full" onchange="render()">
+                <option value="">Todos os Tipos</option>
+                <option value="Feed">Feed/Post</option>
+                <option value="Story">Story</option>
+                <option value="Vídeo">Vídeo</option>
+                <option value="Alta">🚨 Urgentes</option>
+            </select>
+            <input type="text" id="search-input" placeholder="Buscar job... (Ctrl + K)" class="w-64 input-dark rounded-lg px-4 py-2 text-sm shadow-inner">
+        </div>
+    </header>
+
+    <section class="grid grid-cols-5 gap-4 shrink-0">
+        <div class="card rounded-xl p-4 border-l-4 border-l-orange-500">
+            <span class="text-xs text-gray-400 font-medium">1. Fila de Trabalho</span>
+            <span class="text-2xl font-bold text-white block mt-1" id="stat-pending">0</span>
+        </div>
+        <div class="card rounded-xl p-4 border-l-4 border-l-green-500">
+            <span class="text-xs text-gray-400 font-medium">2. Produtividade (Prontos)</span>
+            <span class="text-2xl font-bold text-white block mt-1" id="stat-done">0</span>
+        </div>
+        <div class="card rounded-xl p-4 border-l-4 border-l-red-500 bg-red-900/5">
+            <span class="text-xs text-red-400 font-medium flex items-center gap-1">3. Gargalos (Travados)</span>
+            <span class="text-2xl font-bold text-white block mt-1" id="stat-blocked">0</span>
+        </div>
+        <div class="card rounded-xl p-4">
+            <span class="text-xs text-gray-400 font-medium">4. Maior Demanda</span>
+            <span class="text-lg font-bold text-blue-400 block mt-1 truncate" id="stat-type">-</span>
+        </div>
+        <div class="card rounded-xl p-4">
+            <span class="text-xs text-gray-400 font-medium">5. Top Cliente</span>
+            <span class="text-lg font-bold text-purple-400 block mt-1 truncate" id="stat-client">-</span>
+        </div>
+    </section>
+
+    <section class="card rounded-xl p-4 shrink-0 relative z-10 shadow-lg">
+        <form id="capture-form" class="flex gap-4">
+            <input type="text" id="client-input" placeholder="Cliente" required class="input-dark rounded-lg px-4 py-3 w-1/5 font-medium border-gray-700">
+            
+            <div class="relative w-full">
+                <input type="text" id="demand-input" placeholder="O que precisa ser feito? Aperte Enter para salvar..." required class="input-dark rounded-lg px-4 py-3 w-full border-gray-700" autocomplete="off">
+                <div id="suggestions-box" class="hidden absolute top-full left-0 w-full mt-2 bg-[#1e2128] border border-gray-600 rounded-lg shadow-2xl overflow-hidden z-50">
+                    <div class="px-3 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider bg-[#16181d]">🧠 Histórico Inteligente</div>
+                    <ul id="suggestions-list" class="max-h-40 overflow-y-auto"></ul>
+                </div>
+            </div>
+
+            <input type="date" id="deadline-input" class="input-dark rounded-lg px-4 py-3 text-sm border-gray-700 text-gray-400" title="Prazo (Opcional)">
+
+            <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg transition-all flex-shrink-0 shadow-lg shadow-blue-500/20 active:scale-95">
+                Criar ↵
+            </button>
+        </form>
+    </section>
+
+    <section id="view-kanban" class="flex-1 grid grid-cols-5 gap-3 overflow-hidden pb-2">
+        <div class="flex flex-col gap-2 h-full"><h3 class="font-semibold text-gray-300 text-sm flex justify-between">📦 Inbox <span id="c-inbox" class="text-xs text-gray-500"></span></h3><div id="inbox" class="flex-1 rounded-xl border border-dashed border-gray-700 bg-[#16181d] p-2 flex flex-col gap-2 overflow-y-auto" ondrop="drop(event)" ondragover="allowDrop(event)"></div></div>
+        <div class="flex flex-col gap-2 h-full"><h3 class="font-semibold text-blue-400 text-sm flex justify-between">⚡ Hoje <span id="c-today" class="text-xs text-blue-900"></span></h3><div id="today" class="flex-1 rounded-xl border border-dashed border-blue-900/50 bg-[#16181d] p-2 flex flex-col gap-2 overflow-y-auto" ondrop="drop(event)" ondragover="allowDrop(event)"></div></div>
+        <div class="flex flex-col gap-2 h-full"><h3 class="font-semibold text-gray-400 text-sm flex justify-between">📅 Depois <span id="c-later" class="text-xs text-gray-600"></span></h3><div id="later" class="flex-1 rounded-xl border border-dashed border-gray-700 bg-[#16181d] p-2 flex flex-col gap-2 overflow-y-auto" ondrop="drop(event)" ondragover="allowDrop(event)"></div></div>
+        <div class="flex flex-col gap-2 h-full"><h3 class="font-semibold text-red-500 text-sm flex justify-between">🔴 Travado <span id="c-blocked" class="text-xs text-red-900"></span></h3><div id="blocked" class="flex-1 rounded-xl border border-dashed border-red-900/30 bg-[#16181d] p-2 flex flex-col gap-2 overflow-y-auto" ondrop="drop(event)" ondragover="allowDrop(event)"></div></div>
+        <div class="flex flex-col gap-2 h-full opacity-75"><h3 class="font-semibold text-green-500 text-sm flex justify-between">✅ Concluído <span id="c-done" class="text-xs text-green-900"></span></h3><div id="done" class="flex-1 rounded-xl border border-dashed border-green-900/30 bg-[#16181d] p-2 flex flex-col gap-2 overflow-y-auto" ondrop="drop(event)" ondragover="allowDrop(event)"></div></div>
+    </section>
+
+    <section id="view-table" class="hidden flex-1 card rounded-xl overflow-auto pb-2 relative">
+        <table class="w-full text-left border-collapse text-sm">
+            <thead>
+                <tr class="text-gray-400 border-b border-gray-700">
+                    <th class="p-3 font-semibold w-32">Status</th>
+                    <th class="p-3 font-semibold">Cliente</th>
+                    <th class="p-3 font-semibold">Título</th>
+                    <th class="p-3 font-semibold w-1/4">Demanda</th>
+                    <th class="p-3 font-semibold">Tipo</th>
+                    <th class="p-3 font-semibold">Prazo</th>
+                    <th class="p-3 font-semibold text-right">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="table-body" class="text-gray-300"></tbody>
+        </table>
+    </section>
+
+    <div id="edit-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center">
+        <div class="card p-6 rounded-xl w-[500px] shadow-2xl border border-gray-600">
+            <h2 class="text-lg font-bold text-white mb-4">✏️ Editar Demanda</h2>
+            <form id="edit-form" class="flex flex-col gap-4">
+                <input type="hidden" id="edit-id">
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="text-xs text-gray-400 mb-1 block">Cliente</label><input type="text" id="edit-client" class="input-dark rounded p-2 w-full text-sm"></div>
+                    <div><label class="text-xs text-gray-400 mb-1 block">Título</label><input type="text" id="edit-title" class="input-dark rounded p-2 w-full text-sm"></div>
+                </div>
+                <div><label class="text-xs text-gray-400 mb-1 block">Demanda Completa</label><textarea id="edit-demand" rows="3" class="input-dark rounded p-2 w-full text-sm resize-none"></textarea></div>
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <label class="text-xs text-gray-400 mb-1 block">Tipo</label>
+                        <select id="edit-type" class="input-dark rounded p-2 w-full text-sm"><option>Feed</option><option>Story</option><option>Vídeo</option><option>Identidade</option><option>Outro</option></select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 mb-1 block">Prioridade</label>
+                        <select id="edit-priority" class="input-dark rounded p-2 w-full text-sm"><option>Normal</option><option>Alta</option><option>Baixa</option></select>
+                    </div>
+                    <div><label class="text-xs text-gray-400 mb-1 block">Prazo</label><input type="date" id="edit-deadline" class="input-dark rounded p-2 w-full text-sm text-gray-300"></div>
+                </div>
+                <div class="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-700">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 rounded text-sm text-gray-400 hover:text-white">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 rounded text-sm bg-blue-600 text-white hover:bg-blue-500 font-bold">Salvar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed bottom-6 right-6 flex flex-col gap-2 z-[200]"></div>
+
+    <script>
+        // --- 1. DADOS E BANCO LOCAL ---
+        let tasks = JSON.parse(localStorage.getItem('designOS_tasks_v3')) || [];
+
+        // Migração simples se houver dados da v2
+        const oldTasks = JSON.parse(localStorage.getItem('designOS_tasks'));
+        if (oldTasks && tasks.length === 0) { tasks = oldTasks; saveDb(); }
+
+        function saveDb() { localStorage.setItem('designOS_tasks_v3', JSON.stringify(tasks)); }
+
+        // --- 2. SISTEMA DE NOTIFICAÇÕES ---
+        function showToast(message, type = 'success') {
+            const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-blue-600' };
+            const toast = document.createElement('div');
+            toast.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium toast-enter flex items-center gap-2`;
+            toast.innerHTML = `<span>${message}</span>`;
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        // --- 3. UI Toggles ---
+        let currentView = 'kanban';
+        function toggleView(view) {
+            currentView = view;
+            document.getElementById('view-kanban').classList.toggle('hidden', view !== 'kanban');
+            document.getElementById('view-table').classList.toggle('hidden', view !== 'table');
+            document.getElementById('btn-kanban').className = view === 'kanban' ? 'text-sm font-semibold text-blue-400 border-b-2 border-blue-400 pb-1' : 'text-sm font-semibold text-gray-500 hover:text-gray-300 pb-1';
+            document.getElementById('btn-table').className = view === 'table' ? 'text-sm font-semibold text-blue-400 border-b-2 border-blue-400 pb-1' : 'text-sm font-semibold text-gray-500 hover:text-gray-300 pb-1';
+            render();
+        }
+
+        function getAutoDeadline() {
+            const d = new Date(); d.setDate(d.getDate() + 2); // Padrão: 2 dias
+            return d.toISOString().split('T')[0];
+        }
+
+        // Configura data mínima no form
+        document.getElementById('deadline-input').min = new Date().toISOString().split('T')[0];
+
+        // --- 4. RENDERIZAÇÃO E FILTROS ---
+        function render() {
+            const query = document.getElementById('search-input').value.toLowerCase();
+            const filterValue = document.getElementById('filter-type').value;
+
+            const filtered = tasks.filter(t => {
+                const matchSearch = !query || t.client.toLowerCase().includes(query) || t.demand.toLowerCase().includes(query) || t.title.toLowerCase().includes(query);
+                const matchFilter = !filterValue || (filterValue === 'Alta' ? t.priority === 'Alta' : t.type.includes(filterValue));
+                return matchSearch && matchFilter;
+            });
+
+            // Atualiza Dashboard
+            document.getElementById('stat-pending').innerText = tasks.filter(t => t.status !== 'done' && t.status !== 'blocked').length;
+            document.getElementById('stat-done').innerText = tasks.filter(t => t.status === 'done').length;
+            document.getElementById('stat-blocked').innerText = tasks.filter(t => t.status === 'blocked').length;
+            
+            const types = {}, clients = {};
+            tasks.forEach(t => { if(t.status!=='done') { types[t.type] = (types[t.type] || 0) + 1; clients[t.client] = (clients[t.client] || 0) + 1; }});
+            document.getElementById('stat-type').innerText = Object.keys(types).sort((a,b) => types[b]-types[a])[0] || "-";
+            document.getElementById('stat-client').innerText = Object.keys(clients).sort((a,b) => clients[b]-clients[a])[0] || "-";
+
+            // Atualiza Contadores nas Colunas do Kanban
+            ['inbox', 'today', 'later', 'blocked', 'done'].forEach(status => {
+                const count = filtered.filter(t => t.status === status).length;
+                document.getElementById('c-'+status).innerText = count > 0 ? `(${count})` : '';
+            });
+
+            if (currentView === 'kanban') renderKanban(filtered); else renderTable(filtered);
+        }
+
+        function formatDeadline(dateString, isDone) {
+            if (!dateString) return `<span class="text-[9px] text-gray-500">Sem prazo</span>`;
+            const date = new Date(dateString);
+            const today = new Date(); today.setHours(0,0,0,0);
+            
+            // Formatando para dd/mm localmente
+            const dtStr = date.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' });
+            
+            if (isDone) return `<span class="text-[10px] text-gray-500">🏁 ${dtStr}</span>`;
+            if (date < today) return `<span class="text-[10px] overdue">⚠️ Atrasado (${dtStr})</span>`;
+            if (date.getTime() === today.getTime()) return `<span class="text-[10px] text-orange-400 font-bold">🔥 Hoje</span>`;
+            return `<span class="text-[10px] text-gray-400">📅 ${dtStr}</span>`;
+        }
+
+        function renderKanban(filteredTasks) {
+            ['inbox', 'today', 'later', 'blocked', 'done'].forEach(id => document.getElementById(id).innerHTML = '');
+
+            filteredTasks.forEach(task => {
+                const isDone = task.status === 'done';
+                const pColor = task.priority === 'Alta' ? 'text-red-400 bg-red-500/10 border border-red-500/20' : 'text-blue-400 bg-blue-500/10 border border-blue-500/20';
+                
+                const html = `
+                    <div id="${task.id}" class="card p-3 rounded-lg cursor-grab shadow-sm flex flex-col gap-2 relative group" draggable="true" ondragstart="drag(event)">
+                        <div class="flex justify-between items-start">
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-800 text-gray-300 uppercase">${task.client}</span>
+                            <span class="text-[10px] font-semibold px-2 py-0.5 rounded ${pColor}">${task.type}</span>
+                        </div>
+                        <h4 class="text-sm font-semibold text-white leading-tight mt-1 ${isDone ? 'line-through text-gray-500' : ''}">${task.title}</h4>
+                        <p class="text-[11px] text-gray-400 line-clamp-2" title="${task.demand}">${task.demand}</p>
+                        
+                        <div class="mt-2 pt-2 border-t border-gray-700/50 flex justify-between items-center">
+                            ${formatDeadline(task.deadline, isDone)}
+                            <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onclick="openModal('${task.id}')" class="text-gray-400 hover:text-white" title="Editar">✏️</button>
+                                <button onclick="duplicateTask('${task.id}')" class="text-gray-400 hover:text-blue-400" title="Duplicar">🔁</button>
+                                <button onclick="deleteTask('${task.id}')" class="text-gray-400 hover:text-red-400" title="Excluir">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById(task.status).insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        function renderTable(filteredTasks) {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+            const statusMap = { inbox: '📥 Inbox', today: '⚡ Hoje', later: '📅 Depois', blocked: '🔴 Travado', done: '✅ Concluído' };
+
+            filteredTasks.forEach(task => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-gray-800/50 transition-colors";
+                tr.innerHTML = `
+                    <td class="p-2"><select onchange="changeStatus('${task.id}', this.value)" class="bg-[#13151a] border border-gray-700 text-xs rounded p-1 text-gray-300">${Object.entries(statusMap).map(([k, v]) => `<option value="${k}" ${task.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+                    <td class="p-2 font-semibold text-gray-300">${task.client}</td>
+                    <td class="p-2 text-white font-medium">${task.title}</td>
+                    <td class="p-2 text-gray-400 truncate max-w-[200px]" title="${task.demand}">${task.demand}</td>
+                    <td class="p-2"><span class="px-2 py-0.5 rounded bg-gray-800 text-[10px] uppercase">${task.type}</span></td>
+                    <td class="p-2">${formatDeadline(task.deadline, task.status === 'done')}</td>
+                    <td class="p-2 text-right">
+                        <button onclick="openModal('${task.id}')" class="text-gray-400 hover:text-white mr-2" title="Editar">✏️</button>
+                        <button onclick="duplicateTask('${task.id}')" class="text-blue-400 hover:text-blue-300 mr-2 text-sm" title="Duplicar">🔁</button>
+                        <button onclick="deleteTask('${task.id}')" class="text-red-400 hover:text-red-300 text-sm" title="Excluir">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- 5. AÇÕES ---
+        document.getElementById('capture-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const client = document.getElementById('client-input').value;
+            const demand = document.getElementById('demand-input').value;
+            const customDeadline = document.getElementById('deadline-input').value;
+            
+            // Automação de tipo e título
+            const low = demand.toLowerCase();
+            let type = "Outro", priority = "Normal";
+            if(low.match(/post|feed|carrossel/)) type = "Feed";
+            if(low.match(/story|stories/)) type = "Story";
+            if(low.match(/v[ií]deo|reels|tiktok|youtube/)) type = "Vídeo";
+            if(low.match(/urgente|pra ontem|hoje|agora/)) priority = "Alta";
+            
+            const words = demand.split(" ");
+            const title = `${client.substring(0,3).toUpperCase()} - ${words.slice(0, 3).join(" ")}`;
+
+            tasks.unshift({
+                id: 'task_' + Date.now(), client, demand, title, type, priority, status: 'inbox', date: new Date().toISOString(),
+                deadline: customDeadline || getAutoDeadline()
+            });
+
+            saveDb();
+            document.getElementById('suggestions-box').classList.add('hidden');
+            this.reset(); document.getElementById('client-input').focus();
+            showToast('Job criado com sucesso!');
+            render();
+        });
+
+        // Edição (Modal)
+        function openModal(id) {
+            const t = tasks.find(x => x.id === id);
+            if(!t) return;
+            document.getElementById('edit-id').value = t.id;
+            document.getElementById('edit-client').value = t.client;
+            document.getElementById('edit-title').value = t.title;
+            document.getElementById('edit-demand').value = t.demand;
+            document.getElementById('edit-type').value = t.type;
+            document.getElementById('edit-priority').value = t.priority;
+            document.getElementById('edit-deadline').value = t.deadline || '';
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('edit-modal').classList.add('hidden'); }
+
+        document.getElementById('edit-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const id = document.getElementById('edit-id').value;
+            const taskIndex = tasks.findIndex(t => t.id === id);
+            if(taskIndex > -1) {
+                tasks[taskIndex].client = document.getElementById('edit-client').value;
+                tasks[taskIndex].title = document.getElementById('edit-title').value;
+                tasks[taskIndex].demand = document.getElementById('edit-demand').value;
+                tasks[taskIndex].type = document.getElementById('edit-type').value;
+                tasks[taskIndex].priority = document.getElementById('edit-priority').value;
+                tasks[taskIndex].deadline = document.getElementById('edit-deadline').value;
+                saveDb(); closeModal(); render(); showToast('Card atualizado!', 'info');
+            }
+        });
+
+        // Duplicar, Deletar, Limpar Concluídos, Alterar Status
+        function duplicateTask(id) {
+            const t = tasks.find(x => x.id === id);
+            if(t) {
+                tasks.unshift({ ...t, id: 'task_' + Date.now(), title: '[Cópia] ' + t.title, status: 'inbox' });
+                saveDb(); render(); showToast('Demanda duplicada!');
+            }
+        }
+
+        function deleteTask(id) {
+            if(confirm('Excluir esta demanda permanentemente?')) {
+                tasks = tasks.filter(t => t.id !== id);
+                saveDb(); render(); showToast('Demanda excluída!', 'error');
+            }
+        }
+
+        function clearDone() {
+            if(confirm('Isso apagará TODOS os cards da coluna Concluído. Tem certeza?')) {
+                tasks = tasks.filter(t => t.status !== 'done');
+                saveDb(); render(); showToast('Faxina realizada!', 'info');
+            }
+        }
+
+        function changeStatus(id, newStatus) {
+            const task = tasks.find(t => t.id === id);
+            if(task) { task.status = newStatus; saveDb(); render(); }
+        }
+
+        // --- 6. DRAG AND DROP ---
+        function allowDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over'); }
+        function drag(ev) { ev.dataTransfer.setData("text", ev.target.id); ev.target.classList.add('dragging'); }
+        function drop(ev) {
+            ev.preventDefault();
+            document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+            ev.currentTarget.classList.remove('drag-over');
+            changeStatus(ev.dataTransfer.getData("text"), ev.currentTarget.id);
+        }
+        document.querySelectorAll('[ondragover]').forEach(col => {
+            col.addEventListener('dragleave', e => e.currentTarget.classList.remove('drag-over'));
+        });
+        document.addEventListener('dragend', () => document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging')));
+
+        // --- 7. EXPORT / IMPORT (Backup) ---
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tasks));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", `DesignOS_Backup_${new Date().toISOString().split('T')[0]}.json`);
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            showToast('Backup baixado com sucesso!');
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedTasks = JSON.parse(e.target.result);
+                    if (Array.isArray(importedTasks)) {
+                        if(confirm('Isso substituirá suas tarefas atuais pelos dados do arquivo. Deseja continuar?')) {
+                            tasks = importedTasks; saveDb(); render(); showToast('Backup restaurado!');
+                        }
+                    } else { alert("Arquivo inválido."); }
+                } catch (err) { alert("Erro ao ler o arquivo."); }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- 8. HISTÓRICO INTELIGENTE & ATALHOS ---
+        const demandInput = document.getElementById('demand-input');
+        const suggestBox = document.getElementById('suggestions-box');
+        
+        demandInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            if (term.length < 3) { suggestBox.classList.add('hidden'); return; }
+            const matches = [...new Set(tasks.filter(t => t.demand.toLowerCase().includes(term)).map(t => t.demand))].slice(0, 4);
+            
+            if (matches.length > 0) {
+                document.getElementById('suggestions-list').innerHTML = matches.map(m => `
+                    <li class="px-4 py-2 hover:bg-blue-600/30 cursor-pointer text-sm text-gray-300 border-b border-gray-800 flex gap-2" onclick="useSuggestion('${m}')">
+                        <span class="text-blue-500">↳</span> ${m}
+                    </li>`).join('');
+                suggestBox.classList.remove('hidden');
+            } else suggestBox.classList.add('hidden');
+        });
+
+        function useSuggestion(text) { demandInput.value = text; suggestBox.classList.add('hidden'); demandInput.focus(); }
+        
+        document.addEventListener('click', e => { if (!e.target.closest('.relative')) suggestBox.classList.add('hidden'); });
+        
+        document.getElementById('search-input').addEventListener('input', render);
+        document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); document.getElementById('search-input').focus(); }});
+
+        render();
+    </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "dbd-demandas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@nuxtjs/supabase": "2.0.5",
+    "@nuxtjs/tailwindcss": "6.14.0",
+    "@supabase/supabase-js": "^2.104.0",
+    "@vite-pwa/nuxt": "1.1.1",
+    "nuxt": "3.21.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.5",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.4",
+    "vue-tsc": "^3.2.7"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.5"
+  }
+}

@@ -1,0 +1,124 @@
+<script setup lang="ts">
+import type { Demand, DemandStatus, Priority } from '~/types/domain'
+import { DEMAND_STATUSES, PRIORITIES } from '~/types/domain'
+import { formatCurrencyFromCents, normalizeText, todayIsoDate } from '~/utils/format'
+
+const { demands, loading, error, fetchDemands, updateDemandStatus, duplicateDemand } = useDemands()
+const { openDemandModal } = useDemandModal()
+
+const search = ref('')
+const statusFilter = ref<'all' | DemandStatus>('all')
+const priorityFilter = ref<'all' | Priority>('all')
+const typeFilter = ref('all')
+const clientFilter = ref('all')
+
+const currentMonthLabel = computed(() =>
+  new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date())
+)
+
+const monthDemandItems = computed(() => {
+  const now = new Date()
+  return demands.value.filter((demand) => {
+    const created = new Date(demand.created_at)
+    return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear()
+  })
+})
+
+const clients = computed(() => [...new Set(demands.value.map((demand) => demand.client))].sort())
+const types = computed(() => [...new Set(demands.value.map((demand) => demand.type_name))].sort())
+
+const filteredDemands = computed(() => {
+  const query = normalizeText(search.value)
+  return demands.value.filter((demand) => {
+    const matchesSearch =
+      !query ||
+      normalizeText(`${demand.client} ${demand.title} ${demand.original_request} ${demand.type_name}`).includes(query)
+    const matchesStatus = statusFilter.value === 'all' || demand.status === statusFilter.value
+    const matchesPriority = priorityFilter.value === 'all' || demand.priority === priorityFilter.value
+    const matchesType = typeFilter.value === 'all' || demand.type_name === typeFilter.value
+    const matchesClient = clientFilter.value === 'all' || demand.client === clientFilter.value
+    return matchesSearch && matchesStatus && matchesPriority && matchesType && matchesClient
+  })
+})
+
+const kpis = computed(() => {
+  const pending = demands.value.filter((demand) => demand.status !== 'done').length
+  const done = demands.value.filter((demand) => demand.status === 'done').length
+  const blocked = demands.value.filter((demand) => demand.status === 'blocked').length
+  const monthRevenue = monthDemandItems.value.reduce((sum, demand) => sum + (demand.value_cents || 0), 0)
+  const todayCount = demands.value.filter((demand) => demand.status === 'today' || demand.due_at === todayIsoDate()).length
+  return { pending, done, blocked, monthRevenue, todayCount }
+})
+
+onMounted(fetchDemands)
+
+async function markDone(demand: Demand) {
+  await updateDemandStatus(demand, 'done')
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <section class="flex flex-wrap items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-text">Dashboard de Demandas</h1>
+        <p class="mt-1 text-sm text-muted">{{ currentMonthLabel }} · {{ monthDemandItems.length }} demandas neste mes</p>
+      </div>
+      <button class="btn btn-primary ml-auto" type="button" @click="openDemandModal()">+ Nova Demanda</button>
+    </section>
+
+    <p v-if="error" class="panel border-danger/30 bg-danger/10 p-4 text-sm text-danger">{{ error }}</p>
+
+    <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <StatCard title="Pendentes" :value="kpis.pending" subtitle="Tudo que ainda pede acao" tone="warn" />
+      <StatCard title="Prontos" :value="kpis.done" subtitle="Concluidos no historico" tone="ok" />
+      <StatCard title="Travados" :value="kpis.blocked" subtitle="Onde falta informacao" tone="danger" />
+      <StatCard
+        title="Controle Geral"
+        :value="formatCurrencyFromCents(kpis.monthRevenue)"
+        :subtitle="`${demands.length} demandas totais · ${kpis.todayCount} para hoje`"
+        tone="action"
+      />
+    </section>
+
+    <section class="panel p-4">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <p class="text-sm font-semibold text-text">Filtros</p>
+        <button class="btn btn-ghost min-h-8 px-2 text-xs" type="button" @click="search = ''">Limpar busca</button>
+      </div>
+      <div class="grid gap-3 md:grid-cols-5">
+        <input
+          v-model="search"
+          data-global-search
+          class="field"
+          placeholder="Buscar..."
+          autocomplete="off"
+        />
+        <select v-model="statusFilter" class="field">
+          <option value="all">Todos os Status</option>
+          <option v-for="status in DEMAND_STATUSES" :key="status.value" :value="status.value">{{ status.label }}</option>
+        </select>
+        <select v-model="typeFilter" class="field">
+          <option value="all">Todos os Tipos</option>
+          <option v-for="type in types" :key="type" :value="type">{{ type }}</option>
+        </select>
+        <select v-model="clientFilter" class="field">
+          <option value="all">Todos os Clientes</option>
+          <option v-for="client in clients" :key="client" :value="client">{{ client }}</option>
+        </select>
+        <select v-model="priorityFilter" class="field">
+          <option value="all">Todas</option>
+          <option v-for="priority in PRIORITIES" :key="priority.value" :value="priority.value">{{ priority.label }}</option>
+        </select>
+      </div>
+    </section>
+
+    <DemandTable
+      :demands="filteredDemands"
+      :loading="loading"
+      @edit="openDemandModal"
+      @duplicate="duplicateDemand"
+      @done="markDone"
+    />
+  </div>
+</template>
